@@ -1,0 +1,15 @@
+.root {
+    -fx-background-color: black;
+}
+
+.label {
+    -fx-text-fill: white;
+    -fx-font-size: 20px;
+    -fx-font-family: "Lucida Sans";
+    -fx-alignment: center;
+}    
+
+#title {
+    -fx-font-size: 40px;
+}
+

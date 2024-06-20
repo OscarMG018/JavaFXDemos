@@ -1,0 +1,412 @@
+package com.example.WebBrowser;
+
+import javafx.event.*;
+import javafx.fxml.*;
+import javafx.geometry.Insets;
+import java.net.*;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.web.*;
+import javafx.collections.*;
+import java.util.*;
+import javafx.stage.*;
+import javafx.scene.image.*;
+import javafx.scene.input.*;
+import javafx.util.*;
+
+/*Todo List
+    * redo TabsData so tab.setUserData(tabData)
+    * drag and drop tabs to make bookmarks
+    * reorder bookmarks cursor and indicator
+ */
+
+
+
+public class Controler implements Initializable {
+
+    @FXML
+    private TextField urlTextField;
+    @FXML
+    private TabPane tabPane;
+    @FXML
+    private StackPane WebContainer;
+    @FXML
+    private BorderPane root;
+    @FXML
+    private Button backButton;
+    @FXML
+    private Button forwardButton;
+    @FXML
+    private HBox BookmarkList;
+
+    private String homeUrl = "https://www.google.com";
+    private int currentTabIndex = 0;
+
+    private ArrayList<TabData> tabsData = new ArrayList<>();
+    private Tab addTabButton;
+
+    @Override
+    public void initialize(URL url, ResourceBundle rb) {
+        ObservableList<Tab> tabsCopy = FXCollections.observableArrayList();
+        tabPane.setTabDragPolicy(TabPane.TabDragPolicy.REORDER);
+        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, oldTab, newTab) -> {
+            if (newTab != null) {
+                if (newTab == addTabButton) {
+                    AddTab(null);
+                }
+                else {
+                    changeTab(null);
+                }
+            }
+        });
+
+        tabPane.getTabs().addListener((ListChangeListener<Tab>) change -> {
+            while (change.next()) {
+                if (change.wasRemoved()) {
+                    for (Tab removedTab : change.getRemoved()) {
+                        int removedIndex = change.getFrom();
+                        tabsData.get(removedIndex).webView.getEngine().load(null);
+                        tabsData.remove(removedIndex);
+                        tabsCopy.remove(removedTab);
+                        if (tabsData.size() == 0) {
+                            Stage stage = (Stage) root.getScene().getWindow();
+                            stage.close();
+                        }
+                    }
+                }
+                if (change.wasPermutated()) {
+                    ObservableList<? extends Tab> changedTabs = change.getList();
+                    ArrayList<TabData> newTabsData = new ArrayList<>();
+                    for (int i = 0; i < tabsData.size(); i++) {
+                        newTabsData.add(null);
+                    }
+                    for (int oldIndex = 0; oldIndex < tabsCopy.size(); oldIndex++) {
+                        int newIndex = changedTabs.indexOf(tabsCopy.get(oldIndex));
+                        newTabsData.set(newIndex, tabsData.get(oldIndex));
+                    }
+                    tabsData.clear();
+                    tabsData.addAll(newTabsData);
+                    tabsCopy.clear();
+                    tabsCopy.addAll(changedTabs);
+                }
+                if (change.wasAdded()) {
+                    for (Tab addedTab : change.getAddedSubList()) {
+                        int addedIndex = change.getTo();
+                        tabsCopy.add(addedIndex-1, addedTab);
+                    }
+                }
+            }
+        });
+        
+        AddTab(null);
+    }
+
+    public void loadUrl(){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        webView.getEngine().load(tabsData.get(currentTabIndex).CurrentUrl);
+        urlTextField.setText(tabsData.get(currentTabIndex).CurrentUrl);
+    }
+
+    public void loadUrl(String url){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        webView.getEngine().load(url);
+    }
+
+    public void loadUrl(ActionEvent event){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        String url = urlTextField.getText();
+        webView.getEngine().load(url);
+    }
+
+    public void back(ActionEvent event){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        WebHistory history = webView.getEngine().getHistory();
+        history.go(-1);
+        CheckHistoryButtons(history);
+    }
+    
+    public void forward(ActionEvent event){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        WebHistory history = webView.getEngine().getHistory();
+        history.go(1);
+        CheckHistoryButtons(history);
+    }
+
+    public void CheckHistoryButtons(WebHistory history){
+        if (history.getCurrentIndex() == 0) {
+            backButton.setDisable(true);
+        }
+        else {
+            backButton.setDisable(false);
+        }
+        System.out.println(history.getCurrentIndex());
+        System.out.println(history.getEntries().size());
+        if (history.getCurrentIndex() == history.getEntries().size() - 1) {
+            forwardButton.setDisable(true);
+        }
+        else {
+            forwardButton.setDisable(false);
+        }
+    }
+
+    public void reload(ActionEvent event){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        webView.getEngine().reload();
+    }
+
+    public void home(ActionEvent event){
+        WebView webView = tabsData.get(currentTabIndex).webView;
+        webView.getEngine().load(homeUrl);
+    }
+
+    public void changeTab(ActionEvent event){
+        currentTabIndex = tabPane.getSelectionModel().getSelectedIndex();
+        TabData tabData = tabsData.get(currentTabIndex);
+        urlTextField.setText(tabData.CurrentUrl);
+        SetContainer(tabData.webView);
+        CheckHistoryButtons(tabData.webView.getEngine().getHistory());
+    }
+
+    public void AddTab(ActionEvent event) {
+        WebView webView = new WebView();
+        TabData tabData = new TabData(homeUrl, webView);
+        tabData.favicon = getFavicon(homeUrl);
+        tabsData.add(tabData);
+        currentTabIndex = tabsData.size() - 1;
+        loadUrl();
+        SetContainer(webView);
+
+        Tab tab = new Tab("Loading..."); // Initial title
+        tab.setClosable(true);
+        ContextMenu contextMenu = getTabContextMenu(tab, currentTabIndex);
+        tab.setContextMenu(contextMenu);
+
+        tabPane.getTabs().add(tab);
+        tabPane.getSelectionModel().select(tab); // Select the newly added tab
+        // Update the tab title when the page title changes
+        webView.getEngine().titleProperty().addListener((obs, oldTitle, newTitle) -> {
+            if (newTitle != null) {
+                tab.setText("");
+                HBox hbox = new HBox();
+                if (tabData.favicon != null) {
+                    System.out.println("Favicon loading");
+                    ImageView imageView = new ImageView();
+                    imageView.setImage(tabData.favicon);
+                    hbox.getChildren().add(imageView);
+                }
+                hbox.getChildren().add(new Label(newTitle));
+                hbox.setSpacing(3);
+                tab.setGraphic(hbox);
+            }
+        });
+
+        webView.getEngine().locationProperty().addListener((obs, oldValue, newValue) -> {
+            if (newValue != null) {
+                urlTextField.setText(newValue);
+                tabData.CurrentUrl = newValue;
+                tabData.favicon = getFavicon(newValue);
+            } else {
+                System.err.println("New URL is null");
+            }
+        });
+
+        webView.getEngine().getHistory().currentIndexProperty().addListener((obs, oldValue, newValue) -> {
+            CheckHistoryButtons(webView.getEngine().getHistory());
+        });
+
+        webView.getEngine().getHistory().getEntries().addListener((ListChangeListener<WebHistory.Entry>) change -> {
+            CheckHistoryButtons(webView.getEngine().getHistory());
+        });
+    }
+
+    public void SetContainer(WebView webView) {
+        WebContainer.getChildren().clear();
+        WebContainer.getChildren().add(webView);
+    }
+
+    public ContextMenu getTabContextMenu(Tab tab, int index){
+        ContextMenu contextMenu = new ContextMenu();
+
+        MenuItem bookmarkItem = new MenuItem("Add this tab to bookmarks");
+        bookmarkItem.setOnAction(e -> {
+            System.out.println("BOOKMARK: " + index);
+            AddBookmark(tabsData.get(index));
+        });
+        contextMenu.getItems().add(bookmarkItem);
+
+        MenuItem closeItem = new MenuItem("Close Tab");
+        closeItem.setOnAction(e -> {
+            tabPane.getTabs().remove(tab);
+        });
+        contextMenu.getItems().add(closeItem);
+
+        return contextMenu;
+    }
+
+    public ContextMenu getBookmarkContextMenu(HBox hbox){
+        ContextMenu contextMenu = new ContextMenu();
+
+        MenuItem editItem = new MenuItem("Edit");
+        editItem.setOnAction(e -> {
+            Dialog<Pair<String, String>> dialog = getEditBookmarkDialog(hbox, (Bookmark) hbox.getUserData());
+            Optional<Pair<String, String>> result = dialog.showAndWait();
+            if (result.isPresent()) {
+                Bookmark bookmark = (Bookmark) hbox.getUserData();
+                bookmark.url = result.get().getKey();
+                bookmark.title = result.get().getValue();
+                bookmark.favicon = getFavicon(bookmark.url);
+                hbox.getChildren().clear();
+                hbox.getChildren().add(new ImageView(bookmark.favicon));
+                hbox.getChildren().add(new Label(bookmark.title));
+
+            }
+            
+        });
+        contextMenu.getItems().add(editItem);
+
+        MenuItem deleteItem = new MenuItem("Delete");
+        deleteItem.setOnAction(e -> {
+            BookmarkList.getChildren().remove(hbox);
+        });
+        contextMenu.getItems().add(deleteItem);
+        return contextMenu;
+    }
+
+    public Dialog<Pair<String, String>> getEditBookmarkDialog(HBox hbox, Bookmark bookmark){
+        Dialog<Pair<String, String>> dialog = new Dialog<>();
+        dialog.setTitle("Edit Bookmark");
+        ButtonType saveButton = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveButton, ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20, 150, 10, 10));
+
+        TextField titleField = new TextField(bookmark.title);
+        TextField urlField = new TextField(bookmark.url);
+
+        grid.add(new Label("Title:"), 0, 0);
+        grid.add(titleField, 1, 0);
+        grid.add(new Label("URL:"), 0, 1);
+        grid.add(urlField, 1, 1);
+
+        dialog.getDialogPane().setContent(grid);
+
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == saveButton) {
+                return new Pair<>(urlField.getText(), titleField.getText());
+            }
+            return null;
+        });
+
+        return dialog;
+    }
+
+    public void AddBookmark(TabData tabData){
+        Bookmark bookmark = new Bookmark();
+        bookmark.url = tabData.CurrentUrl;
+        bookmark.title = tabData.webView.getEngine().getTitle();
+        bookmark.favicon = tabData.favicon;
+
+        HBox hbox = new HBox();
+        hbox.getChildren().add(new ImageView(bookmark.favicon));
+        hbox.getChildren().add(new Label(bookmark.title));
+        hbox.setSpacing(3);
+        hbox.setOnMouseEntered(e -> {
+            hbox.setStyle("-fx-background-color: lightgray");
+        });
+        hbox.setOnMouseExited(e -> {
+            hbox.setStyle("-fx-background-color: transparent");
+        });
+        hbox.setOnMouseClicked(e -> {
+            if (e.getButton() == MouseButton.PRIMARY) { 
+                loadUrl(bookmark.url);
+            }
+        });
+        hbox.setUserData(bookmark);
+        hbox.setOnContextMenuRequested(e -> {
+            e.consume();
+            getBookmarkContextMenu(hbox).show(hbox, e.getScreenX(), e.getScreenY());
+        });
+        
+        // Add drag-and-drop functionality
+        hbox.setOnDragDetected(event -> {
+            Dragboard db = hbox.startDragAndDrop(TransferMode.MOVE);
+            ClipboardContent content = new ClipboardContent();
+            content.putString(bookmark.url);
+            db.setContent(content);
+
+            // Set the drag view to the bookmark's icon
+            if (bookmark.favicon != null) {
+                db.setDragView(bookmark.favicon);
+            }
+            event.consume();
+        });
+
+        hbox.setOnDragOver(event -> {
+            if (event.getGestureSource() != hbox && event.getDragboard().hasString()) {
+                event.acceptTransferModes(TransferMode.MOVE);
+            }
+            event.consume();
+        });
+
+        hbox.setOnDragDropped(event -> {
+            Dragboard db = event.getDragboard();
+            boolean success = false;
+            if (db.hasString()) {
+                HBox source = (HBox) event.getGestureSource();
+                int targetIndex = BookmarkList.getChildren().indexOf(hbox);
+                BookmarkList.getChildren().remove(source);
+                BookmarkList.getChildren().add(targetIndex, source);
+                success = true;
+            }
+            event.setDropCompleted(success);
+            event.consume();
+        });
+
+        BookmarkList.getChildren().add(hbox);
+    }
+
+    public Image getFavicon(String location) {
+        try {
+            String faviconUrl = String.format("https://www.google.com/s2/favicons?domain_url=%s", URLEncoder.encode(location, "UTF-8"));
+            System.out.println("Favicon URL: " + faviconUrl); // Debugging line
+            Image favicon = new Image(faviconUrl, true);
+            favicon.errorProperty().addListener((obs, wasError, isError) -> {
+                if (isError) {
+                    System.err.println("Error loading favicon: " + favicon.getException());
+                }
+            });
+            favicon.progressProperty().addListener((obs, oldProgress, newProgress) -> {
+                System.out.println("Favicon load progress: " + newProgress);
+            });
+            return favicon;
+        } catch (Exception e) {
+            System.out.println("Error getting favicon: " + e.getMessage());
+            return null;
+        }
+    }
+}
+
+class TabData {
+    public String CurrentUrl;
+    public WebView webView;
+    public Image favicon;
+
+    public TabData(String url, WebView webView) {
+        this.CurrentUrl = url;
+        this.webView = webView;
+    }
+
+    @Override
+    public String toString() {
+        return "TabData{" + "CurrentUrl=" + CurrentUrl + '}';
+    }
+}
+
+class Bookmark {
+    public String url;
+    public String title;
+    public Image favicon;
+}
